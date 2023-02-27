@@ -19,6 +19,8 @@
 #include<linux/if_packet.h>
 #include<net/if.h>
 
+#include <errno.h>
+
 #include"crc.h"
 
 #include<pthread.h>
@@ -49,13 +51,6 @@ char* readinput()
     } while (templen==CHUNK-1 && tempbuf[CHUNK-2]!='\n');
     return input;
 }
-
-typedef struct animal{
-    int age;
-    //char* name; //n faz sentido mandar um ponteiro/endereco para socket, eh do servidor, pq eu mandaria?
-    char name[45];
-} animal;
-
 
 typedef struct packet {
     int num_seq;
@@ -97,6 +92,22 @@ int enviar_arquivo(char *string) {
     return 1;
 }
 
+void verificaConexao(int sockfd){
+    if (errno == EPIPE || errno == ENOTCONN){
+        clear();
+        printw("Erro de conexao - 202");
+        refresh();
+        close(sockfd);
+        endwin();
+        exit(202);//(202);
+    }
+    if (errno == ECONNRESET){
+        clear();
+        printw("Conexao Reestabelecida - 208");
+        refresh();
+    }
+}
+
 
 void modo_edicao(char **str) {
     printw("Digite sua mensagem, e ao terminar digite <Enter>, ou, para cancelar pressione <ESC>\n\n");
@@ -128,7 +139,7 @@ void modo_edicao(char **str) {
         printw("\n\nenviamos a seguinte mensagem = %s\n", *str);
     }
     //printw("Succes\n");
-    refresh();
+    //refresh();
     
 
     return;
@@ -141,23 +152,17 @@ int main(){ // int argc, char *argv[] // get host at least?
     
     int sockfd;
     struct ifreq ir;
-    struct sockaddr_in rcvr_addr;
-    struct sockaddr_in sndr_addr;
+    //struct sockaddr_in rcvr_addr;
+    //struct sockaddr_in sndr_addr;
     struct hostent *hostname;
-    struct sockaddr_ll eth_addr;
-    struct sockaddr_ll eth_snd_addr;
+    struct sockaddr_ll eth_snd;
+    struct sockaddr_ll eth_rcvr;
     message msg;
     message msgrcv;
     int numbytes;
+    int connfd;
     socklen_t addr_len;
     char buf[MAXBUFLEN];
-
-    /*if (argc != 3)
-    {
-        fprintf(stderr,"usage: talker hostname message\n");
-        exit(1);
-    }
-    */
 
     char he[100];
 
@@ -168,29 +173,46 @@ int main(){ // int argc, char *argv[] // get host at least?
     int num_seq_esperado = 0;
 
     // creates the UDP socket
-    if ((sockfd = socket (AF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL))) == -1) //SOCK_STREAM //SO_REUSEADDR
-    {
+    if ((sockfd = socket (AF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL))) == -1) { //SOCK_STREAM
         perror("socket");
-        exit(1);
+        printw("Erro de conexao - 202");
+        refresh();
+        //break;//(1);
+        close(sockfd);
+        endwin();
+        exit(202);
     }
 
     memset(&ir, 0, sizeof(struct ifreq)); /*eth0*/
     memcpy(ir.ifr_name, "eth0", sizeof("eth0"));
     if (ioctl(sockfd, SIOCGIFINDEX, &ir)==-1){
-        perror("ioctl");
-        exit(1);
+        /*perror("ioctl");
+        break;//(1);*/
+        clear();
+        printw("Erro de conexao - 202");
+        refresh();
+        close(sockfd);
+        endwin();
+        exit(202);
     }
 
-    eth_snd_addr.sll_family = AF_PACKET;
-    eth_snd_addr.sll_protocol = htons(ETH_P_ALL);
-    //eth_snd_addr.sll_halen=ETHER_ADDR_LEN;
-    eth_snd_addr.sll_ifindex = ir.ifr_ifindex;
+    eth_snd.sll_family = AF_PACKET;
+    eth_snd.sll_protocol = htons(ETH_P_ALL);
+    eth_snd.sll_ifindex = ir.ifr_ifindex;
+
+    eth_rcvr.sll_family = AF_PACKET;
+    eth_rcvr.sll_protocol = htons(ETH_P_ALL);
+    eth_rcvr.sll_ifindex = ir.ifr_ifindex;
 
     // associates the socket to receiver's data (addr & port)
-    if (bind (sockfd, (struct sockaddr *) &eth_snd_addr,
-            sizeof (eth_addr)) == -1){
+    if (bind (sockfd, &eth_snd,
+            sizeof (eth_snd)) == -1){
         perror("bind");
-        exit(1);
+        //break;//(1);
+        close(sockfd);
+        endwin();
+        exit(202);
+        ///exit(1);
     }
 
     initscr();     // inicializa a tela do curses
@@ -215,23 +237,30 @@ int main(){ // int argc, char *argv[] // get host at least?
 
     do {
         clear();
-        
+        if (ioctl(sockfd, SIOCGIFINDEX, &ir)==-1){
+            clear();
+            printw("Erro de conexao - 202");
+            refresh();
+            close(sockfd);
+            endwin();
+            exit(202);//(202);;//(1);
+        }
+        verificaConexao(sockfd);
 
         printw("Digite i para entrar no modo de envio de mensagens, :q<enter> para sair do programa e :send <arquivo> <enter> para enviar um arquivo\n");
         refresh();
-        enviar_mensagem = 0;
+        ///enviar_mensagem = 0;
         c = getch();
 
         if (c == 105) {
             str = NULL;
             modo_edicao(&str);
-            //printw("Ue\n");
             enviar_mensagem = 1;
         }
 
         if (c == ':') {
             seguindo_sequencia = 1;
-        }else if (c == 's') {
+        } else if (c == 's') {
             if (ultimo_char == ':' && seguindo_sequencia == 1) {
                 //:s
                 seguindo_sequencia = 1;
@@ -293,122 +322,67 @@ int main(){ // int argc, char *argv[] // get host at least?
         ultimo_char = c;
 
 
-        //1 = Mandar/Talker
+        //1 = Mandar/Talker/Client
         if (enviar_mensagem){ // reverse, put the receive before //test these without ncurses, this is a pain
-            //refresh();
-            /*printw("Digite o host\n"); //no need for this?
-            refresh();
-            //echo();
             
-            //scanf("%s\n",he);
-            scanw("%s",he);
-
-            hostname = gethostbyname(he) ;
-            if (hostname == NULL){
-                perror("gethostbyname");
-                exit(1);
-            }
-        
-            rcvr_addr.sin_family = AF_INET;
-            rcvr_addr.sin_port   = htons(RCVR_PORT);
-            rcvr_addr.sin_addr   = *((struct in_addr *)hostname->h_addr);
-            // zeroes the rest of the struct
-            memset(&(rcvr_addr.sin_zero), '\0', 8);*/
-
-            //msg=malloc(sizeof(message));
-
-            //msg.age = 15;
-            //msg.name=malloc(6);
-            //msg.name="Lucas";
-            //"Lucas";
-            //strcpy(msg.name,"Lucas suca");//{"L","u","c","a","s","\0"};
-            //printf("%s\n",msg.name);
-
+            
             
             msg.preamble = 126;
             msg.type = 1;
-            //msg.sequence = 0;
             msg.size=63;
-            //msg.data="mensagem";
             
-            
+            int msgLen = strlen(str);
+            int num_packets = msgLen/63;
+            int num_packets_send = 0;
 
-            //printf("%s",msg.data);
-            //printw("Digite a mensagem\n");
-            //funcao pra pegar mensagem "infinita", fazer funcao
-            //precisa de referencia como input
-            //precisamos cortar mmensagem em pedacos dps
-            /*
-            char* str = NULL;
-            int ch;
-            size_t size=0,len=0;
-            while ((ch=getchar()) != EOF && ch != '\n') {
-            /    if (len + 1 >= size){
-                    //printf("heah\n");
-                    size = size * 2 + 1;
-                    str = realloc(str, sizeof(char)*size);
+            int in=0; int i=0; int ackrcvd=1;
+            while (num_packets_send < num_packets || num_packets_send==0){
+                if (ackrcvd==1){
+                    strncpy(msg.data,str+in,in+62); //63?
+                    msg.sequence=i%16;
+                    msg.type=1;
+                    msg.crc8=crc8(msg.data,strlen(msg.data));
+                    numbytes = sendto (sockfd, &msg, sizeof(message),0,&eth_rcvr,
+                                sizeof(eth_rcvr));
+                    verificaConexao(sockfd);
+                    if (numbytes == -1){
+                        printw("Erro de sendto");
+                        refresh();
+                        perror("sendto");
+                        close(sockfd);
+                        endwin();
+                        exit(202);//(202);
+                    }
+                    printw("Sent\n");
+                    refresh();
                 }
-            str[len++] = ch;
-            /
-                ++len;
-                str=realloc(str,sizeof(char)*len);
-                str[len-1]=ch;
-            }
-            */
-        //if (str != NULL) {
-            //str[len] = '\0';
-        //    printf("%s\n", str);
-            //free(str);
-        //}
-        //vai ate aqui com possivel free (precisamos de free, porem tb temos q passar pra msg.name)
-        printw("Success\n");
-        refresh();
-        int msgLen = strlen(str);
-        int num_packets = msgLen/63;
-        int num_packets_send = 0;
-        /*if (enviando_mensagem){
-
-        }*/
-        int in=0; int i=0; int ackrcvd=1;
-        while (num_packets_send <= num_packets){
-            //strcpy(msg.data,str);
-            if (ackrcvd==1){
-            strncpy(msg.data,str+in,in+62); //63?
-            msg.sequence=i%16;
-            msg.type=1;
-            msg.crc8=crc8(msg.data,strlen(msg.data));
-            numbytes = sendto (sockfd, &msg, sizeof(message),0,&eth_snd_addr,
-                        sizeof(eth_snd_addr));
-                        
-            if (numbytes == -1){
-                perror("sendto");
-                exit(1);
-            }
-            printw("Sent\n");
-            refresh();
-            }
             
-            addr_len = sizeof(struct sockaddr_ll);
-            numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , (struct sockaddr *) &eth_snd_addr, &addr_len);
-            printw("Received");
-            refresh();
-            if (numbytes>0 && msgrcv.type==10){ //&& msgrcv.data[0] == i
-                ackrcvd=1;
-                printw("Ack");
-                refresh();
-                ++num_packets_send;
-                in+=63;
-                ++i;
-                //perror("recv");
-                ///exit(1);
-            } else if(msgrcv.type==0){
-                //i=msgrcv.data[0];
-                ackrcvd=1;
-            } 
-            else{
-                ackrcvd=0;
+                addr_len = sizeof(struct sockaddr_ll);
+                numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , &eth_rcvr, &addr_len);
+                //printw("Received");
+                //refresh();
+                if (numbytes>0 && msgrcv.type==10){ //&& msgrcv.data[0] == i
+                    ackrcvd=1;
+                    printw("Client: Ack");
+                    refresh();
+                    ++num_packets_send;
+                    in+=63;
+                    ++i;
+                    //i=msgrcv.data[0];
+                    //perror("recv");
+                    ///break;//(1);
+                } else if(msgrcv.type==0){
+                    //i=msgrcv.data[0];
+                    ackrcvd=1;
+                    //i=msgrcv.data[0];
+                    clear();
+                    printw("Client: Nack");
+                    refresh();
+                } 
+                else{
+                    ackrcvd=0;
+                }
             }
-        }
         
 
         /*while (num_packets_send < num_packets) {
@@ -440,76 +414,74 @@ int main(){ // int argc, char *argv[] // get host at least?
 
         }*/
             
-            printw("%s\n",str);
-            refresh();
-            //strcpy(msg.name,inputString(stdin,10));
-            //scanf("%s",he);
-                // sends the message to the receiver using the socket
-            /*numbytes = sendto (sockfd, argv[2], strlen(argv[2]), 0,
-                        (struct sockaddr *) &rcvr_addr,
-                        sizeof(struct sockaddr)) ;
-                        */               //sizeof(animal)-sizeof(char*)
-            printw("dwqew\n",str);
-            refresh();
-            
 
             /*int num_packets = 1; //TODO calcular o número de pacotes a serem enviados
             int num_packets_send = 0;
             printw("dwqew\n",str);
             refresh();
            */
-        } else{ //Else ou 2 = Receber
-            //printw("wtf\n");
-            //refresh();
-            
-    
+        } else{ //Else ou 2 = Receber //Server
             // waits for a packet arriving to the socket
-            addr_len = sizeof(eth_snd_addr);
+            
+            /*if ((listen(sockfd,5))!=0){
+                printw("Listen failed");
+                refresh();
+                perror("listen");
+                exit(1);
+            }*/
+
+            addr_len = sizeof(eth_snd);
+            
+            /*connfd = accept(sockfd, &eth_snd, addr_len);
+            if (connfd==-1){
+                printw("Accept failed");
+                refresh();
+                perror("accept");
+                exit(1);
+            }*/
+
             int i=0;
             //while (1){
             printw ("Listening for packets at port %d\n", RCVR_PORT) ;
             refresh();
-            /*numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
-                                (struct sockaddr *) &sndr_addr, &addr_len) ;*/
-            numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , (struct sockaddr *) &eth_snd_addr, &addr_len); //buf
+
+            numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , &eth_snd, &addr_len); //buf
             //packet *packet_rcvd = (struct packet *) buf;
             if (numbytes>0 && msgrcv.type==1 ){ //&& msgrcv.sequence==i
                 printw("Packet is %d bytes long, is %d and contains \"%s\"\n", numbytes, msgrcv.sequence, msgrcv.data);
-            refresh();
+                refresh();
                 msgrcv.type=10;
-                //free(msgrcv.data);
-                msgrcv.data[0]=i;
-                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,&eth_snd_addr,
-                        sizeof(eth_snd_addr));
-
+                msgrcv.data[0]=msgrcv.sequence+1;
+                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,&eth_snd,
+                        sizeof(eth_snd));
+                verificaConexao(sockfd);
                 if (numbytes == -1){
                     perror("sendto");
-                    exit(1);
+                    close(sockfd);
+                    endwin();
+                    exit(204);//(202);;//(1);
                 }
+                //clear();
                 printw("AckSent\n");
                 refresh();
-            } else{
+            } else{ //Nack
                 msgrcv.type=0;
-                msgrcv.data[0]=i;
-                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,&eth_snd_addr,
-                        sizeof(eth_snd_addr));
-
+                msgrcv.data[0]=msgrcv.sequence;
+                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,&eth_snd,
+                        sizeof(eth_snd));
+                verificaConexao(sockfd);
                 if (numbytes == -1){
                     perror("sendto");
-                    exit(1);
+                    close(sockfd);
+                    endwin();
+                    exit(204);//(202);;//(1);
                 }
-                printw("Not Received\n");
+                printw("Nack\n");
                 refresh();
             }
             ++i;
             //}
-            //printw("lol\n");
-            //printf("%s",msgrcv.data);
-            /*if (numbytes == -1){
-                perror ("recvfrom");
-                exit (1);
-            }*/
-            //printw("lol\n");
+            
             // prints packet info and contents
             //clear();
             //printw ("Got packet from host %s:%d\n",
@@ -537,11 +509,13 @@ int main(){ // int argc, char *argv[] // get host at least?
         
     refresh();
     getch();
-    //sleep(1);
+    //sleep(5);
     } while(1);
     
     //fecha socket
     close (sockfd);
+
+    endwin();
  
     return 0;
 }
