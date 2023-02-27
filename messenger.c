@@ -23,7 +23,7 @@
 
 #include"crc.h"
 
-#include<pthread.h>
+//#include<pthread.h>
 
 #define ESC 27
 
@@ -31,10 +31,10 @@
 // Para rodar, instale a biblioteca ncurses, e compile com a flag: -lcurses
 //https://www.google.com/search?q=C+sending+pointer+over+socket&sxsrf=AJOqlzXV-W4zsd6bZpoC4FHcg6X6E4mDjA%3A1676939748169&ei=5BH0Y-mGCpuL5OUPopq06Ag&ved=0ahUKEwjpiP-vr6X9AhWbBbkGHSINDY0Q4dUDCA8&uact=5&oq=C+sending+pointer+over+socket&gs_lcp=Cgxnd3Mtd2l6LXNlcnAQAzIGCAAQFhAeMgUIABCGAzIFCAAQhgM6CggAEEcQ1gQQsAM6BAgjECc6BAgAEEM6BQgAEJECOgUIABCABDoLCC4QgAQQxwEQ0QM6BwgAEIAEEAo6CggAEIAEEBQQhwI6CQgAEBYQHhDxBDoNCAAQFhAeEA8Q8QQQCjoFCCEQoAE6CwghEBYQHhDxBBAdOggIIRAWEB4QHToECCEQFToKCCEQFhAeEA8QHUoECEEYAFCMBliDI2CzI2gDcAF4AIABsgGIAZIbkgEEMC4yOJgBAKABAcgBCMABAQ&sclient=gws-wiz-serp
 
-#define RCVR_PORT 4950
+//#define RCVR_PORT 4950
 
 // input buffer size
-#define MAXBUFLEN 100
+//#define MAXBUFLEN 100
 
 char* readinput()
 {
@@ -52,12 +52,12 @@ char* readinput()
     return input;
 }
 
-typedef struct packet {
+/*typedef struct packet {
     int num_seq;
     char data[MAXBUFLEN];
 } packet;
 
-int ULTIMO_PACKET_RECEBIDO = -1;
+int ULTIMO_PACKET_RECEBIDO = -1;*/
 
 void concatenar_letra(char texto[], char letra){
     size_t tamanho = strlen(texto);
@@ -115,7 +115,7 @@ void modo_edicao(char **str) {
 
     *str = NULL;
     int ch;
-    size_t size=0,len=0;
+    size_t len=0;
     while ((ch=getch()) != EOF && ch != '\n' && ch != ESC) {
         
         if (ch != 127) {
@@ -148,29 +148,29 @@ void modo_edicao(char **str) {
 
 int main(){ // int argc, char *argv[] // get host at least?
     //setlocale(LC_ALL,""); //Os dois usuários devem ser capazes de fazer envios de mensagem de texto com todos os caracteres disponíveis na codificação UTF-8. Isso inclui por exemplo letras acentuadas e emojis.
-    pthread_t thr[2];
+    //pthread_t thr[2];
     
     int sockfd;
     struct ifreq ir;
     //struct sockaddr_in rcvr_addr;
     //struct sockaddr_in sndr_addr;
-    struct hostent *hostname;
+    //struct hostent *hostname;
     struct sockaddr_ll eth_snd;
     struct sockaddr_ll eth_rcvr;
     message msg;
     message msgrcv;
     int numbytes;
-    int connfd;
+    //int connfd;
     socklen_t addr_len;
-    char buf[MAXBUFLEN];
+    //char buf[MAXBUFLEN];
 
-    char he[100];
+    ///char he[100];
 
     char c, ultimo_char;
     char arquivo[100];
     int seguindo_sequencia = 0; //1 se estiver seguindo a sequência :q<enter>
     int enviar_mensagem = 0; //1 se ele estiver no modo talker
-    int num_seq_esperado = 0;
+    //int num_seq_esperado = 0;
 
     // creates the UDP socket
     if ((sockfd = socket (AF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL))) == -1) { //SOCK_STREAM
@@ -205,7 +205,7 @@ int main(){ // int argc, char *argv[] // get host at least?
     eth_rcvr.sll_ifindex = ir.ifr_ifindex;
 
     // associates the socket to receiver's data (addr & port)
-    if (bind (sockfd, &eth_snd,
+    if (bind (sockfd, (struct sockaddr *)&eth_snd,
             sizeof (eth_snd)) == -1){
         perror("bind");
         //break;//(1);
@@ -341,8 +341,8 @@ int main(){ // int argc, char *argv[] // get host at least?
                     strncpy(msg.data,str+in,in+62); //63?
                     msg.sequence=i%16;
                     msg.type=1;
-                    msg.crc8=crc8(msg.data,strlen(msg.data));
-                    numbytes = sendto (sockfd, &msg, sizeof(message),0,&eth_rcvr,
+                    msg.crc8=crc8((unsigned int*)msg.data,strlen(msg.data));
+                    numbytes = sendto (sockfd, &msg, sizeof(message),0,(struct sockaddr *)&eth_rcvr,
                                 sizeof(eth_rcvr));
                     verificaConexao(sockfd);
                     if (numbytes == -1){
@@ -358,7 +358,7 @@ int main(){ // int argc, char *argv[] // get host at least?
                 }
             
                 addr_len = sizeof(struct sockaddr_ll);
-                numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , &eth_rcvr, &addr_len);
+                numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , (struct sockaddr *)&eth_rcvr, &addr_len);
                 //printw("Received");
                 //refresh();
                 if (numbytes>0 && msgrcv.type==10){ //&& msgrcv.data[0] == i
@@ -442,17 +442,17 @@ int main(){ // int argc, char *argv[] // get host at least?
 
             int i=0;
             //while (1){
-            printw ("Listening for packets at port %d\n", RCVR_PORT) ;
+            printw ("Esperando pacotess\n"); //RCVR_PORT
             refresh();
 
-            numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , &eth_snd, &addr_len); //buf
+            numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , (struct sockaddr *)&eth_snd, &addr_len); //buf
             //packet *packet_rcvd = (struct packet *) buf;
             if (numbytes>0 && msgrcv.type==1 ){ //&& msgrcv.sequence==i
                 printw("Packet is %d bytes long, is %d and contains \"%s\"\n", numbytes, msgrcv.sequence, msgrcv.data);
                 refresh();
                 msgrcv.type=10;
                 msgrcv.data[0]=msgrcv.sequence;
-                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,&eth_snd,
+                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,(struct sockaddr *)&eth_snd,
                         sizeof(eth_snd));
                 verificaConexao(sockfd);
                 if (numbytes == -1){
@@ -467,7 +467,7 @@ int main(){ // int argc, char *argv[] // get host at least?
             } else{ //Nack
                 msgrcv.type=0;
                 msgrcv.data[0]=msgrcv.sequence;
-                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,&eth_snd,
+                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,(struct sockaddr *)&eth_snd,
                         sizeof(eth_snd));
                 verificaConexao(sockfd);
                 if (numbytes == -1){

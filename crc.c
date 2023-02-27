@@ -69,7 +69,7 @@ unsigned int CRCTable[256] = {
 };
 
 int elemEqual(char* arr, size_t len, char c){
-    int b=1;
+    //int b=1;
     for (size_t i = 0;i<len;++i){
         if (arr[i]!=c){
             //b=1;
@@ -81,8 +81,8 @@ int elemEqual(char* arr, size_t len, char c){
 }
 
 char* crcRemainder(char* in, char* polyn, char fill){
-    long int comp=0;
-    char* end;
+    //long int comp=0;
+    ///char* end;
     size_t len=strlen(in);
     char* ret=malloc(3);
     //end=in+(strlen(in)-1);
@@ -129,21 +129,6 @@ int crcCheck(char* in, char* polyn, char* check){
     }
     return 1;
 }
-
-/*
-uint32_t CRC32(const uint8_t data[], size_t data_length) {
-	uint32_t crc32 = 0xFFFFFFFFu;
-	
-	for (size_t i = 0; i < data_length; i++) {
-		const uint32_t lookupIndex = (crc32 ^ data[i]) & 0xff;
-		crc32 = (crc32 >> 8) ^ CRCTable[lookupIndex];  // CRCTable is an array of 256 32-bit constants
-	}
-	
-	// Finalize the CRC-32 value by inverting all the bits
-	crc32 ^= 0xFFFFFFFFu;
-	return crc32;
-}
-*/
 
 unsigned int CRC32Wiki(unsigned int data[], size_t dataLen){ //wikipedia
     unsigned int crc32=0xFFFFFFFFu;
