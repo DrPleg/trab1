@@ -366,7 +366,7 @@ int main(){ // int argc, char *argv[] // get host at least?
                     printw("Client: Ack");
                     refresh();
                     ++num_packets_send;
-                    in+=63;
+                    in+=62;
                     ++i;
                     //i=msgrcv.data[0];
                     //perror("recv");
@@ -451,7 +451,7 @@ int main(){ // int argc, char *argv[] // get host at least?
                 printw("Packet is %d bytes long, is %d and contains \"%s\"\n", numbytes, msgrcv.sequence, msgrcv.data);
                 refresh();
                 msgrcv.type=10;
-                msgrcv.data[0]=msgrcv.sequence+1;
+                msgrcv.data[0]=msgrcv.sequence;
                 numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,&eth_snd,
                         sizeof(eth_snd));
                 verificaConexao(sockfd);
