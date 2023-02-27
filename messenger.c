@@ -13,6 +13,15 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include<arpa/inet.h>
+#include<sys/ioctl.h>
+#include<net/ethernet.h>
+#include<linux/if_packet.h>
+#include<net/if.h>
+
+#include"crc.h"
+
+#include<pthread.h>
 
 #define ESC 27
 
@@ -89,32 +98,38 @@ int enviar_arquivo(char *string) {
 }
 
 
-void modo_edicao(char *str) {
+void modo_edicao(char **str) {
     printw("Digite sua mensagem, e ao terminar digite <Enter>, ou, para cancelar pressione <ESC>\n\n");
     echo();
 
-    str = NULL;
+    *str = NULL;
     int ch;
     size_t size=0,len=0;
     while ((ch=getch()) != EOF && ch != '\n' && ch != ESC) {
         
         if (ch != 127) {
             ++len;
-            str=realloc(str,sizeof(char)*len);
-            str[len-1]=ch;
+            *str=realloc(*str,sizeof(char)*len);
+            (*str)[len-1]=ch;
         }
         else {
             //backspace
             clear();
-            printw("%s", str); 
+            printw("%s", *str); 
         }
     }
-    str[len] = '\0';
-
-    if (ch == '\n') {
-        printw("\n\nenviamos a seguinte mensagem = %s\n", str);
+    if (*str==NULL){
+        *str="";
     }
+    else{
+        (*str)[len] = '\0';
+    }
+    if (ch == '\n') {
+        printw("\n\nenviamos a seguinte mensagem = %s\n", *str);
+    }
+    //printw("Succes\n");
     refresh();
+    
 
     return;
 }
@@ -122,12 +137,17 @@ void modo_edicao(char *str) {
 
 int main(){ // int argc, char *argv[] // get host at least?
     //setlocale(LC_ALL,""); //Os dois usuários devem ser capazes de fazer envios de mensagem de texto com todos os caracteres disponíveis na codificação UTF-8. Isso inclui por exemplo letras acentuadas e emojis.
+    pthread_t thr[2];
+    
     int sockfd;
+    struct ifreq ir;
     struct sockaddr_in rcvr_addr;
     struct sockaddr_in sndr_addr;
     struct hostent *hostname;
-    animal msg;
-    animal msgrcv;
+    struct sockaddr_ll eth_addr;
+    struct sockaddr_ll eth_snd_addr;
+    message msg;
+    message msgrcv;
     int numbytes;
     socklen_t addr_len;
     char buf[MAXBUFLEN];
@@ -148,26 +168,64 @@ int main(){ // int argc, char *argv[] // get host at least?
     int num_seq_esperado = 0;
 
     // creates the UDP socket
-    if ((sockfd = socket (AF_INET, SOCK_DGRAM, 0)) == -1)
+    if ((sockfd = socket (AF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL))) == -1) //SOCK_STREAM //SO_REUSEADDR
     {
         perror("socket");
+        exit(1);
+    }
+
+    memset(&ir, 0, sizeof(struct ifreq)); /*eth0*/
+    memcpy(ir.ifr_name, "eth0", sizeof("eth0"));
+    if (ioctl(sockfd, SIOCGIFINDEX, &ir)==-1){
+        perror("ioctl");
+        exit(1);
+    }
+
+    eth_snd_addr.sll_family = AF_PACKET;
+    eth_snd_addr.sll_protocol = htons(ETH_P_ALL);
+    //eth_snd_addr.sll_halen=ETHER_ADDR_LEN;
+    eth_snd_addr.sll_ifindex = ir.ifr_ifindex;
+
+    // associates the socket to receiver's data (addr & port)
+    if (bind (sockfd, (struct sockaddr *) &eth_snd_addr,
+            sizeof (eth_addr)) == -1){
+        perror("bind");
         exit(1);
     }
 
     initscr();     // inicializa a tela do curses
     cbreak();      // habilita o modo de leitura não-bloqueante de entrada de teclado
     echo();        // habilita o modo de eco de entrada de teclado
-    printw("Digite i para entrar no modo de envio de mensagens, :q<enter> para sair do programa e :send <arquivo> <enter> para enviar um arquivo\n");
     char *str = NULL;
 
 
+            /*rcvr_addr.sin_family = AF_INET;
+            rcvr_addr.sin_port = htons(RCVR_PORT);   // short, network byte order
+            rcvr_addr.sin_addr.s_addr = INADDR_ANY;  // automatically fill with my IP
+            memset(&(rcvr_addr.sin_zero), '\0', 8);  // zero the rest of the struct*/
+
+            /*msg.preamble = 126;
+            msg.type = 1;
+            msg.sequence = 0;
+            msg.size=15;
+            msg.data="mensagem";
+            msg.crc8=10;*/
+        
+            
+
     do {
+        clear();
+        
+
+        printw("Digite i para entrar no modo de envio de mensagens, :q<enter> para sair do programa e :send <arquivo> <enter> para enviar um arquivo\n");
+        refresh();
         enviar_mensagem = 0;
         c = getch();
 
         if (c == 105) {
             str = NULL;
-            modo_edicao(str);
+            modo_edicao(&str);
+            //printw("Ue\n");
             enviar_mensagem = 1;
         }
 
@@ -236,10 +294,14 @@ int main(){ // int argc, char *argv[] // get host at least?
 
 
         //1 = Mandar/Talker
-        if (enviar_mensagem){
-
-            printw("Digite o host\n");
-            scanf("%s\n",he);
+        if (enviar_mensagem){ // reverse, put the receive before //test these without ncurses, this is a pain
+            //refresh();
+            /*printw("Digite o host\n"); //no need for this?
+            refresh();
+            //echo();
+            
+            //scanf("%s\n",he);
+            scanw("%s",he);
 
             hostname = gethostbyname(he) ;
             if (hostname == NULL){
@@ -251,25 +313,25 @@ int main(){ // int argc, char *argv[] // get host at least?
             rcvr_addr.sin_port   = htons(RCVR_PORT);
             rcvr_addr.sin_addr   = *((struct in_addr *)hostname->h_addr);
             // zeroes the rest of the struct
-            memset(&(rcvr_addr.sin_zero), '\0', 8);
+            memset(&(rcvr_addr.sin_zero), '\0', 8);*/
 
             //msg=malloc(sizeof(message));
 
-            msg.age = 15;
+            //msg.age = 15;
             //msg.name=malloc(6);
             //msg.name="Lucas";
             //"Lucas";
             //strcpy(msg.name,"Lucas suca");//{"L","u","c","a","s","\0"};
             //printf("%s\n",msg.name);
 
-            /*
+            
             msg.preamble = 126;
             msg.type = 1;
-            msg.sequence = 0;
-            msg.size=15;
-            msg.data="mensagem";
-            msg.crc8=10;
-            */
+            //msg.sequence = 0;
+            msg.size=63;
+            //msg.data="mensagem";
+            
+            
 
             //printf("%s",msg.data);
             //printw("Digite a mensagem\n");
@@ -300,30 +362,61 @@ int main(){ // int argc, char *argv[] // get host at least?
         //}
         //vai ate aqui com possivel free (precisamos de free, porem tb temos q passar pra msg.name)
         printw("Success\n");
-            strcpy(msg.name,str);
-            printw("%s\n",str);
-            //strcpy(msg.name,inputString(stdin,10));
-            //scanf("%s",he);
-                // sends the message to the receiver using the socket
-            /*numbytes = sendto (sockfd, argv[2], strlen(argv[2]), 0,
-                        (struct sockaddr *) &rcvr_addr,
-                        sizeof(struct sockaddr)) ;
-                        */               //sizeof(animal)-sizeof(char*)
-            numbytes = sendto (sockfd, &msg, sizeof(animal),0,(struct sockaddr *) &rcvr_addr,
-                        sizeof(struct sockaddr));
+        refresh();
+        int msgLen = strlen(str);
+        int num_packets = msgLen/63;
+        int num_packets_send = 0;
+        /*if (enviando_mensagem){
+
+        }*/
+        int in=0; int i=0; int ackrcvd=1;
+        while (num_packets_send <= num_packets){
+            //strcpy(msg.data,str);
+            if (ackrcvd==1){
+            strncpy(msg.data,str+in,in+62); //63?
+            msg.sequence=i%16;
+            msg.type=1;
+            msg.crc8=crc8(msg.data,strlen(msg.data));
+            numbytes = sendto (sockfd, &msg, sizeof(message),0,&eth_snd_addr,
+                        sizeof(eth_snd_addr));
+                        
             if (numbytes == -1){
                 perror("sendto");
                 exit(1);
             }
+            printw("Sent\n");
+            refresh();
+            }
+            
+            addr_len = sizeof(struct sockaddr_ll);
+            numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , (struct sockaddr *) &eth_snd_addr, &addr_len);
+            printw("Received");
+            refresh();
+            if (numbytes>0 && msgrcv.type==10){ //&& msgrcv.data[0] == i
+                ackrcvd=1;
+                printw("Ack");
+                refresh();
+                ++num_packets_send;
+                in+=63;
+                ++i;
+                //perror("recv");
+                ///exit(1);
+            } else if(msgrcv.type==0){
+                //i=msgrcv.data[0];
+                ackrcvd=1;
+            } 
+            else{
+                ackrcvd=0;
+            }
+        }
+        
 
-            int num_packets = 1; //TODO calcular o número de pacotes a serem enviados
-            int num_packets_send = 0;
-
-            while (num_packets_send < num_packets) {
+        /*while (num_packets_send < num_packets) {
                 // Espera um pacote de dados do remetente
                 recv(sockfd, buf, MAXBUFLEN, 0);
                 struct packet *incoming_pkt = (struct packet *) buf;
-
+                printw("duh\n");
+                    refresh();
                 // Verifica o número de sequência
                 if (incoming_pkt->num_seq == num_seq_esperado) {
                     // Pacote correto, envia um ACK
@@ -334,68 +427,117 @@ int main(){ // int argc, char *argv[] // get host at least?
                     // Pacote incorreto, envia um NACK com o número de sequência esperado
                     int nack = num_seq_esperado;
                     sendto(sockfd, &nack, sizeof(int), 0, (struct sockaddr *) &rcvr_addr, sizeof(rcvr_addr));
+                    printw("duh\n");
+                    refresh();
                 }
 
                 
                 printw ("sent %d bytes to host %s port %d\n", numbytes,
                 inet_ntoa (rcvr_addr.sin_addr), RCVR_PORT);
-                }
-        } else{ //Else ou 2 = Receber
-            rcvr_addr.sin_family = AF_INET;
-            rcvr_addr.sin_port = htons(RCVR_PORT);   // short, network byte order
-            rcvr_addr.sin_addr.s_addr = INADDR_ANY;  // automatically fill with my IP
-            memset(&(rcvr_addr.sin_zero), '\0', 8);  // zero the rest of the struct
+                refresh();
+                }*/
+        /*if (strlen(str)>63){
 
-            /*msg.preamble = 126;
-            msg.type = 1;
-            msg.sequence = 0;
-            msg.size=15;
-            msg.data="mensagem";
-            msg.crc8=10;*/
-        
-            // associates the socket to receiver's data (addr & port)
-            if (bind (sockfd, (struct sockaddr *) &rcvr_addr,
-                    sizeof (struct sockaddr)) == -1){
-                perror("bind");
-                exit(1);
-            }
+        }*/
+            
+            printw("%s\n",str);
+            refresh();
+            //strcpy(msg.name,inputString(stdin,10));
+            //scanf("%s",he);
+                // sends the message to the receiver using the socket
+            /*numbytes = sendto (sockfd, argv[2], strlen(argv[2]), 0,
+                        (struct sockaddr *) &rcvr_addr,
+                        sizeof(struct sockaddr)) ;
+                        */               //sizeof(animal)-sizeof(char*)
+            printw("dwqew\n",str);
+            refresh();
+            
+
+            /*int num_packets = 1; //TODO calcular o número de pacotes a serem enviados
+            int num_packets_send = 0;
+            printw("dwqew\n",str);
+            refresh();
+           */
+        } else{ //Else ou 2 = Receber
+            //printw("wtf\n");
+            //refresh();
+            
     
             // waits for a packet arriving to the socket
-            addr_len = sizeof(struct sockaddr);
+            addr_len = sizeof(eth_snd_addr);
+            int i=0;
+            //while (1){
             printw ("Listening for packets at port %d\n", RCVR_PORT) ;
+            refresh();
             /*numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
                                 (struct sockaddr *) &sndr_addr, &addr_len) ;*/
-            numbytes = recvfrom(sockfd, buf, MAXBUFLEN, 0 , (struct sockaddr *) &sndr_addr, &addr_len);
-            packet *packet_rcvd = (struct packet *) buf;
+            numbytes = recvfrom(sockfd, &msgrcv, sizeof(message), 0 , (struct sockaddr *) &eth_snd_addr, &addr_len); //buf
+            //packet *packet_rcvd = (struct packet *) buf;
+            if (numbytes>0 && msgrcv.type==1 ){ //&& msgrcv.sequence==i
+                printw("Packet is %d bytes long, is %d and contains \"%s\"\n", numbytes, msgrcv.sequence, msgrcv.data);
+            refresh();
+                msgrcv.type=10;
+                //free(msgrcv.data);
+                msgrcv.data[0]=i;
+                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,&eth_snd_addr,
+                        sizeof(eth_snd_addr));
 
-            printw("lol\n");
+                if (numbytes == -1){
+                    perror("sendto");
+                    exit(1);
+                }
+                printw("AckSent\n");
+                refresh();
+            } else{
+                msgrcv.type=0;
+                msgrcv.data[0]=i;
+                numbytes = sendto (sockfd, &msgrcv, sizeof(message),0,&eth_snd_addr,
+                        sizeof(eth_snd_addr));
+
+                if (numbytes == -1){
+                    perror("sendto");
+                    exit(1);
+                }
+                printw("Not Received\n");
+                refresh();
+            }
+            ++i;
+            //}
+            //printw("lol\n");
             //printf("%s",msgrcv.data);
-            if (numbytes == -1){
+            /*if (numbytes == -1){
                 perror ("recvfrom");
                 exit (1);
-            }
-            printw("lol\n");
+            }*/
+            //printw("lol\n");
             // prints packet info and contents
-            printw ("Got packet from host %s:%d\n",
-                    inet_ntoa (sndr_addr.sin_addr), ntohs(sndr_addr.sin_port));
+            //clear();
+            //printw ("Got packet from host %s:%d\n",
+            //        inet_ntoa (sndr_addr.sin_addr), ntohs(sndr_addr.sin_port));
+            //refresh();
+            
+
             //buf[numbytes] = '\0';
             //printf ("Packet is %d bytes long and contains \"%s\"\n", numbytes, buf);
             //printw ("Packet is %d bytes long and contains \"%s\"\n", numbytes, msgrcv.name);
-            if (packet_rcvd->num_seq == ULTIMO_PACKET_RECEBIDO+1) {
+            /*if (packet_rcvd->num_seq == ULTIMO_PACKET_RECEBIDO+1) {
                 ULTIMO_PACKET_RECEBIDO++;
                 // Pacote correto, envia um ACK com o número de sequência correspondente
                 sendto(sockfd, &ULTIMO_PACKET_RECEBIDO, sizeof(int), 0, (struct sockaddr *) &sndr_addr, sizeof(sndr_addr));
 
                 // Imprime o conteúdo do pacote
-                printf("Received: %s\n", packet_rcvd->data);
+                printw("Received: %s\n", packet_rcvd->data);
+                refresh();
             } else {
                 // Pacote incorreto, envia um NACK com o número de sequência esperado
                 sendto(sockfd, &ULTIMO_PACKET_RECEBIDO+1, sizeof(int), 0, (struct sockaddr *) &sndr_addr, sizeof(sndr_addr));
-            }
-        
+            }*/
+            //}
         }
         
-    
+    refresh();
+    getch();
+    //sleep(1);
     } while(1);
     
     //fecha socket
